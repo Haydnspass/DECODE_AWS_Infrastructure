@@ -1,0 +1,6 @@
+sqs:
+    queue_names:
+        LOCAL_QUEUE: "local_queue"
+        CLOUD_QUEUE: "cloud_queue"
+        ANY_QUEUE: "any_queue"
+    visibility_timeout: 10
