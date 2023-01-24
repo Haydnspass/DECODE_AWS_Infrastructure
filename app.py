@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
 import aws_cdk as cdk
+import os
+from cloud_formation.cloud_formation_stack import DecodeCloudFormationStack
+from cloud_formation.utils import get_config
 
-from cloud_formation.cloud_formation_stack import CloudFormationStack
 
-
-#TODO: allow flexibility
-env_EU = cdk.Environment(region='eu-central-1')
+env = cdk.Environment(region=get_config()['region_name'], account=os.environ['CDK_DEFAULT_ACCOUNT'])  #TODO: account
 
 app = cdk.App()
-CloudFormationStack(app, "decode-cloud-formation", env=env_EU)
+DecodeCloudFormationStack(app, "decode-cloud-formation", env=env)
 
 app.synth()
