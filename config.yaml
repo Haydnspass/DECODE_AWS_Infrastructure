@@ -8,26 +8,21 @@ sqs:
 
 dispatcher:
     lambda_fun_name: 'decode_dispatcher'
-    lambda_fun_id: 'decode_dispatcher_id'
-    lambda_role_id: 'decode_dispatcher_role'
-    rule_id: 'decode_dispatcher_rule_id'
     rule_name: 'decode_dispatcher_rule'
     rate: 2 # for testing
     python_version: '3.9'
 
 batch:
-    compute_env_id: 'decode_compute_env_id'
     compute_env_name: 'decode_compute_env'
     minv_cpus: 0
     maxv_cpus: 4
     instance_types:
     - 'a1.medium'
-    queue_id: 'decode_job_queue_id'
     queue_name: 'decode_job_queue'
-    job_def_id: 'decode_job_definition_id'
     job_def_name: 'decode_job_definition'
-    batch_role_id: 'decode_batch_role_id'
-    dockerimage_id: 'decode_dockerimage_id' # for testing
 
 vpc:
     vpc_name: 'decode_vpc'
+
+efs:
+    file_system_name: 'decode_filesystem_name'

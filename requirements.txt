@@ -4,3 +4,4 @@ boto3
 pyyaml
 aws-cdk.aws-batch-alpha
 pytest
+python-dotenv
