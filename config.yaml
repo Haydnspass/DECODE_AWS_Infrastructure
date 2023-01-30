@@ -9,7 +9,7 @@ sqs:
 dispatcher:
     lambda_fun_name: 'decode_dispatcher'
     rule_name: 'decode_dispatcher_rule'
-    rate: 2 # for testing
+    rate: 5
     python_version: '3.9'
 
 batch:
@@ -17,9 +17,11 @@ batch:
     minv_cpus: 0
     maxv_cpus: 4
     instance_types:
-    - 'a1.medium'
+    - 'g4dn.xlarge'
     queue_name: 'decode_job_queue'
     job_def_name: 'decode_job_definition'
+    job_def_memory: 8000
+    job_def_gpu_count: 1
 
 vpc:
     vpc_name: 'decode_vpc'

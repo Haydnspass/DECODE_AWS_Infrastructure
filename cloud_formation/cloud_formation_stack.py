@@ -75,7 +75,6 @@ class DecodeCloudFormationStack(Stack):
             self, 'decode_rule_id', rule_name=config_dispatcher['rule_name'],
             schedule=events.Schedule.rate(Duration.minutes(config_dispatcher['rate'])), enabled=True,
         )
-        # attach scheduler
         dispatcher_scheduler.add_target(targets.LambdaFunction(dispatcher_function))
         return dispatcher_function, dispatcher_scheduler
 
@@ -134,11 +133,11 @@ class DecodeCloudFormationStack(Stack):
         # Docker image
         #TODO: temp (for testing): after probably GitHub actions to tag&push to ECR + version handling via overriding
         dockerimage = ecr_assets.DockerImageAsset(
-            self, 'decode_dockerimage_id', directory=os.path.dirname(__file__),
+            self, 'decode_dockerimage_id', directory=os.path.join(os.path.dirname(__file__), 'batch_code'),
         )
         # Compute environment
         batch_compute_env = batch.ComputeEnvironment(
-            self, 'decode_compute_env_id', compute_environment_name=config_batch['compute_env_name'],
+            self, 'decode_compute_env_id2', compute_environment_name=config_batch['compute_env_name'],
             #TODO: config
             compute_resources=batch.ComputeResources(
                 type=batch.ComputeResourceType.ON_DEMAND,
@@ -176,8 +175,10 @@ class DecodeCloudFormationStack(Stack):
                     name='efs_volume',  #TODO: additional config?
                     efs_volume_configuration=ecs.EfsVolumeConfiguration(file_system_id=file_system.file_system_id)
                 )],
+                gpu_count=config_batch['job_def_gpu_count'],
+                memory_limit_mib=config_batch['job_def_memory'],
             ),
-            timeout=Duration.seconds(18000),
+            timeout=Duration.seconds(18000), #TODO: memory
         )
         return batch_compute_env, batch_queue, batch_job_def
 
@@ -186,7 +187,7 @@ class DecodeCloudFormationStack(Stack):
         pass
 
     def get_postprocessor(self, config: dict):
-        """Updates DB after job finished, handles user notification, handles failures.
+        """Updates DB after job finished (status+logs location), handles user notification, handles failures.
         """
         #TODO:
         pass

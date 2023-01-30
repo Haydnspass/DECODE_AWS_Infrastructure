@@ -1,6 +1,7 @@
 import boto3
 import json
 import os
+from fastapi.encoders import jsonable_encoder
 from utils.queue import SQSJobQueue
 
 
@@ -10,28 +11,31 @@ def _start_job(job: dict, config: dict):
     """
     client = boto3.client('batch', region_name=config['region_name'])
     config_batch = config['batch']
-    cmd = []
+    log_path = None
     if job.job_type == 'train':
         param_path = job.attributes['config_file']
         model_path = job.attributes['model_file']
-        calib_path = None  #TODO:
-        cmd = ['--train', '-c', calib_path, '-m', model_path, '-p', param_path]
+        calib_path = 'None'  #TODO: add in API
+        log_path = f'decode_job_logs/{job.id}/'  #TODO: add in API
+        cmd = ['--train', '-c', calib_path, '-m', model_path, '-p', param_path, '-l', log_path]
     elif job.job_type == 'inference':
-        emitter_path = None  #TODO:
-        frame_path = None  #TODO:
-        frame_meta_path = None  #TODO:
+        emitter_path = 'None'  #TODO: add in API
+        frame_path = 'None'  #TODO: add in API
+        frame_meta_path = 'None'  #TODO: add in API
         model_path = job.attributes['model_file']
         cmd = ['--fit', '-e', emitter_path, '-f', frame_path, '-k', frame_meta_path, '-m', model_path]
+    else:
+        raise ValueError(f'Job must be of type either "train" or "fit", not {job.job_type}.')
     client.submit_job(
-        jobDefinition=config_batch['job_def_name'],
+        jobDefinition=config_batch['job_def_name'],  #TODO: select based on decode version
         jobName=f'decode_job_{job.id}',
-        jobQueue=config_batch['queue_name'],  #TODO: select based on decode version
-        #containerOverrides={'command': cmd + [f'--out_path={job.id}']},
+        jobQueue=config_batch['queue_name'],
+        containerOverrides={'command': cmd},
     )
-    #TODO: choose jobdefinition -> Dockerimage based on version used
+    return log_path
 
 
-def _update_api_db(job: dict, config: dict):
+def _update_api_db(job: dict, config: dict, log_path: str):
     """Update job status on api and store logs location.
     """
     #TODO:
@@ -52,12 +56,12 @@ def lambda_handler(event, context):
         while True:
             job = queue.dequeue(older_than=older_than)
             # example for testing:
-            # {"id": "id", "job_type": "train", "date_created": "2023-01-20T20:23:54", "date_started": "date_started", "date_finished": "date_finished", "status": "status", "model_id": "model_id", "model": "model", "environment": "environment", "attributes": {"config_file": "", "model_file": ""}}
+            # {"id": "id", "job_type": "train", "date_created": "2023-01-20T20:23:54", "date_started": "date_started", "date_finished": "date_finished", "status": "status", "model_id": "model_id", "model": "model", "environment": "environment", "attributes": {"config_file": "c_f", "model_file": "m_f"}}
             if not job:
                 break
-            _start_job(job=job, config=config)
+            log_path = _start_job(job=job, config=config)
             api_url = None  #TODO: set api
-            #_update_api_db(job=job,, api_url=api_url)
-            jobs_started.append(job)
+            #_update_api_db(job=job, api_url=api_url, log_path=log_path)
+            jobs_started.append(jsonable_encoder(job))
 
     return {'statusCode': 200, 'body': json.dumps({'jobs_started': jobs_started})}
