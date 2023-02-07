@@ -15,13 +15,13 @@ def _start_job(job: dict, config: dict):
     if job.job_type == 'train':
         param_path = job.attributes['config_file']
         model_path = job.attributes['model_file']
-        calib_path = 'None'  #TODO: add in API
-        log_path = f'decode_job_logs/{job.id}/'  #TODO: add in API
+        calib_path = job.attributes['calib_file']  #TODO: add in API
+        log_path = f's3://{config["s3"]["bucket_name"]}{config["s3"]["logs_root_path"]}/{job.id}/'  #TODO: add in API
         cmd = ['--train', '-c', calib_path, '-m', model_path, '-p', param_path, '-l', log_path]
     elif job.job_type == 'inference':
-        emitter_path = 'None'  #TODO: add in API
-        frame_path = 'None'  #TODO: add in API
-        frame_meta_path = 'None'  #TODO: add in API
+        emitter_path = job.attributes['emitter_file']  #TODO: add in API
+        frame_path = job.attributes['frame_file']  #TODO: add in API
+        frame_meta_path = job.attributes['frame_meta_file']  #TODO: add in API
         model_path = job.attributes['model_file']
         cmd = ['--fit', '-e', emitter_path, '-f', frame_path, '-k', frame_meta_path, '-m', model_path]
     else:
@@ -55,8 +55,6 @@ def lambda_handler(event, context):
     for queue in queues:
         while True:
             job = queue.dequeue(older_than=older_than)
-            # example for testing:
-            # {"id": "id", "job_type": "train", "date_created": "2023-01-20T20:23:54", "date_started": "date_started", "date_finished": "date_finished", "status": "status", "model_id": "model_id", "model": "model", "environment": "environment", "attributes": {"config_file": "c_f", "model_file": "m_f"}}
             if not job:
                 break
             log_path = _start_job(job=job, config=config)

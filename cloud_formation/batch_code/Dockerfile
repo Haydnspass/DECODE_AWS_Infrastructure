@@ -16,5 +16,4 @@ RUN chmod +x /entrypoint.sh
 # Container needs a role on AWS,
 # see https://hands-on.cloud/working-with-aws-batch-in-python-using-boto3/#AWS-Batch-Job-IAM-role;
 # locally, pass credentials as -v ${HOME}/.aws/credentials:/root/.aws/credentials:ro
-ENTRYPOINT ["python", "test_cuda.py"]
-#ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]

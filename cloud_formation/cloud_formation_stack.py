@@ -3,6 +3,7 @@ import os
 from constructs import Construct
 from aws_cdk import (
     Duration,
+    RemovalPolicy,
     Stack,
     aws_iam as iam,
     aws_sqs as sqs,
@@ -14,6 +15,7 @@ from aws_cdk import (
     aws_ecs as ecs,
     aws_ecr_assets as ecr_assets,
     aws_efs as efs,
+    aws_s3 as s3,
 )
 from .utils import get_config
 
@@ -36,6 +38,8 @@ class DecodeCloudFormationStack(Stack):
         file_system = self.get_file_system(config, vpc=vpc)
         # Batch
         batch_compute_env, batch_queue, batch_job_def = self.get_batch_resources(config, vpc=vpc, file_system=file_system)
+        # S3
+        bucket = self.get_bucket(config)
         # postprocessor
         # postprocessor_function = self.get_postprocessor(config)
         # API
@@ -71,11 +75,12 @@ class DecodeCloudFormationStack(Stack):
             environment={'config_json': json.dumps(get_config())},
         )
         # Scheduler
-        dispatcher_scheduler = events.Rule(
-            self, 'decode_rule_id', rule_name=config_dispatcher['rule_name'],
-            schedule=events.Schedule.rate(Duration.minutes(config_dispatcher['rate'])), enabled=True,
-        )
-        dispatcher_scheduler.add_target(targets.LambdaFunction(dispatcher_function))
+        dispatcher_scheduler = None
+        #dispatcher_scheduler = events.Rule(
+        #    self, 'decode_rule_id', rule_name=config_dispatcher['rule_name'],
+        #    schedule=events.Schedule.rate(Duration.minutes(config_dispatcher['rate'])), enabled=True,
+        #)
+        #dispatcher_scheduler.add_target(targets.LambdaFunction(dispatcher_function))
         return dispatcher_function, dispatcher_scheduler
 
     def get_queues(self, config: dict):
@@ -107,13 +112,17 @@ class DecodeCloudFormationStack(Stack):
         )
         # interfaces to other services (required since private and no NAT)
         vpc.add_interface_endpoint('EC2', service=ec2.InterfaceVpcEndpointAwsService.EC2)
+        vpc.add_interface_endpoint('ECR_docker', service=ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER)
         vpc.add_interface_endpoint('ECR', service=ec2.InterfaceVpcEndpointAwsService.ECR)
+        vpc.add_interface_endpoint('ECS_agent', service=ec2.InterfaceVpcEndpointAwsService.ECS_AGENT)
+        vpc.add_interface_endpoint('ECS_telemetry', service=ec2.InterfaceVpcEndpointAwsService.ECS_TELEMETRY)
         vpc.add_interface_endpoint('ECS', service=ec2.InterfaceVpcEndpointAwsService.ECS)
         vpc.add_interface_endpoint('EFS', service=ec2.InterfaceVpcEndpointAwsService.ELASTIC_FILESYSTEM)
+        vpc.add_interface_endpoint('CloudWatch_logs', service=ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS)
         return vpc
 
     def get_file_system(self, config: dict, vpc: ec2.Vpc):
-        """Creates the EFS filesystem for batch.
+        """Gets the EFS filesystem for batch.
         """
         config_efs = config['efs']
         file_system = efs.FileSystem(
@@ -122,6 +131,7 @@ class DecodeCloudFormationStack(Stack):
             lifecycle_policy=efs.LifecyclePolicy.AFTER_14_DAYS,  #TODO: config
             performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,  #TODO: config
             out_of_infrequent_access_policy=efs.OutOfInfrequentAccessPolicy.AFTER_1_ACCESS,  #TODO: config
+            removal_policy=RemovalPolicy.DESTROY,
         )
         return file_system
 
@@ -158,7 +168,8 @@ class DecodeCloudFormationStack(Stack):
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(policy_name)
                 for policy_name in (
-                    'AmazonS3FullAccess', 'CloudWatchFullAccess',  #TODO: grant from filesystem?
+                    'AmazonS3FullAccess', 'CloudWatchFullAccess', 'AmazonEC2ContainerRegistryReadOnly',
+                    'AmazonElasticFileSystemFullAccess',  #TODO: fine-tune
                 )
             ]
         )
@@ -170,6 +181,7 @@ class DecodeCloudFormationStack(Stack):
             container=batch.JobDefinitionContainer(
                 image=ecs.ContainerImage.from_docker_image_asset(dockerimage),
                 execution_role=batch_role,
+                job_role=batch_role,  #TODO:
                 mount_points=[ecs.MountPoint(container_path='/files', read_only=False, source_volume='efs_volume')],
                 volumes=[ecs.Volume(
                     name='efs_volume',  #TODO: additional config?
@@ -177,10 +189,26 @@ class DecodeCloudFormationStack(Stack):
                 )],
                 gpu_count=config_batch['job_def_gpu_count'],
                 memory_limit_mib=config_batch['job_def_memory'],
+                vcpus=config_batch['job_def_vcpus'],
+                environment={'NVIDIA_REQUIRE_CUDA': 'cuda>=11.0', 'NVIDIA_DRIVER_CAPABILITIES': 'all'},  # required to use GPUs
             ),
             timeout=Duration.seconds(18000), #TODO: memory
         )
         return batch_compute_env, batch_queue, batch_job_def
+
+    def get_bucket(self, config: dict):
+        config_s3 = config['s3']
+        logs_lifecycle_rule = s3.LifecycleRule(
+            id='decode_s3_logs_lifecycle_rule_id',
+            enabled=True, expiration=Duration.days(config_s3['logs_expiration']),
+            prefix=config_s3['logs_root_path'],  #TODO: adapt to API
+        )
+        bucket = s3.Bucket(
+            self, 'decode_s3_bucket_id', bucket_name=config_s3['bucket_name'],
+            removal_policy=RemovalPolicy.DESTROY, auto_delete_objects=True,  #TODO: we probably don't want this in deployment
+            lifecycle_rules=[logs_lifecycle_rule],
+        )
+        return bucket
 
     def get_api(self, config: dict):
         #TODO: https://www.eliasbrange.dev/posts/deploy-fastapi-on-aws-part-2-fargate-alb/

@@ -79,6 +79,7 @@ def handle_input_files():
     parser.add_argument('-m', '--model_path')
     if '--train' in sys.argv:
         parser.add_argument('-c', '--calib_path')
+        parser.add_argument('-l', '--log_path')
         parser.add_argument('-p', '--param_path')
     if '--fit' in sys.argv:
         parser.add_argument('-e', '--emitter_path')

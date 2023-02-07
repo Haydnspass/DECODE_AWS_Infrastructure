@@ -15,16 +15,22 @@ dispatcher:
 batch:
     compute_env_name: 'decode_compute_env'
     minv_cpus: 0
-    maxv_cpus: 4
+    maxv_cpus: 16
     instance_types:
     - 'g4dn.xlarge'
     queue_name: 'decode_job_queue'
     job_def_name: 'decode_job_definition'
     job_def_memory: 8000
     job_def_gpu_count: 1
+    job_def_vcpus: 4
 
 vpc:
     vpc_name: 'decode_vpc'
 
 efs:
     file_system_name: 'decode_filesystem_name'
+
+s3:
+    bucket_name: 'decode-bucket-name'
+    logs_expiration: 14
+    logs_root_path: 'decode_job_logs'
