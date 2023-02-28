@@ -37,7 +37,7 @@ class DecodeCloudFormationStack(Stack):
         # File system
         file_system = self.get_file_system(config, vpc=vpc)
         # Batch
-        batch_compute_env, batch_queue, batch_job_def = self.get_batch_resources(config, vpc=vpc, file_system=file_system)
+        batch_compute_env, batch_queue, batch_job_defs = self.get_batch_resources(config, vpc=vpc, file_system=file_system)
         # S3
         bucket = self.get_bucket(config)
         # postprocessor
@@ -76,11 +76,11 @@ class DecodeCloudFormationStack(Stack):
         )
         # Scheduler
         dispatcher_scheduler = None
-        #dispatcher_scheduler = events.Rule(
-        #    self, 'decode_rule_id', rule_name=config_dispatcher['rule_name'],
-        #    schedule=events.Schedule.rate(Duration.minutes(config_dispatcher['rate'])), enabled=True,
-        #)
-        #dispatcher_scheduler.add_target(targets.LambdaFunction(dispatcher_function))
+        dispatcher_scheduler = events.Rule(
+            self, 'decode_rule_id', rule_name=config_dispatcher['rule_name'],
+            schedule=events.Schedule.rate(Duration.minutes(config_dispatcher['rate'])), enabled=True,
+        )
+        dispatcher_scheduler.add_target(targets.LambdaFunction(dispatcher_function))
         return dispatcher_function, dispatcher_scheduler
 
     def get_queues(self, config: dict):
@@ -137,14 +137,9 @@ class DecodeCloudFormationStack(Stack):
 
     def get_batch_resources(self, config: dict, vpc: ec2.Vpc, file_system: efs.FileSystem):
         """Sets up everything that is required for the batch jobs:
-        Compute environment, job queue, job definition, Docker container.
+        Compute environment, job queue, job definitions, Docker container.
         """
         config_batch = config['batch']
-        # Docker image
-        #TODO: temp (for testing): after probably GitHub actions to tag&push to ECR + version handling via overriding
-        dockerimage = ecr_assets.DockerImageAsset(
-            self, 'decode_dockerimage_id', directory=os.path.join(os.path.dirname(__file__), 'batch_code'),
-        )
         # Compute environment
         batch_compute_env = batch.ComputeEnvironment(
             self, 'decode_compute_env_id2', compute_environment_name=config_batch['compute_env_name'],
@@ -174,27 +169,39 @@ class DecodeCloudFormationStack(Stack):
             ]
         )
         # Job definition
-        #TODO: will need multiple (one per decode version), since apparently we can't override the container per-job
-        batch_job_def = batch.JobDefinition(
-            self, 'decode_job_def_id', job_definition_name=config_batch['job_def_name'],
-            #TODO: config, dockerimage on ECR
-            container=batch.JobDefinitionContainer(
-                image=ecs.ContainerImage.from_docker_image_asset(dockerimage),
-                execution_role=batch_role,
-                job_role=batch_role,  #TODO:
-                mount_points=[ecs.MountPoint(container_path='/files', read_only=False, source_volume='efs_volume')],
-                volumes=[ecs.Volume(
-                    name='efs_volume',  #TODO: additional config?
-                    efs_volume_configuration=ecs.EfsVolumeConfiguration(file_system_id=file_system.file_system_id)
-                )],
-                gpu_count=config_batch['job_def_gpu_count'],
-                memory_limit_mib=config_batch['job_def_memory'],
-                vcpus=config_batch['job_def_vcpus'],
-                environment={'NVIDIA_REQUIRE_CUDA': 'cuda>=11.0', 'NVIDIA_DRIVER_CAPABILITIES': 'all'},  # required to use GPUs
-            ),
-            timeout=Duration.seconds(18000), #TODO: memory
+        #TODO: temp (for testing): after probably GitHub actions to tag&push to ECR
+        dockerimage = ecr_assets.DockerImageAsset(
+            self, 'decode_dockerimage_id', directory=os.path.join(os.path.dirname(__file__), 'batch_code'),
         )
-        return batch_compute_env, batch_queue, batch_job_def
+        # Base job definitions (could have dummy image);
+        # one revision per decode version, overriding docker image
+        config_train_job = config_batch['job_defs']['train']
+        config_fit_job = config_batch['job_defs']['fit']
+
+        def get_job_def(job_type: str, job_def_config: dict):
+            return batch.JobDefinition(
+                self, f'{job_type}_job_def_id', job_definition_name=job_def_config['name'],
+                #TODO: config
+                container=batch.JobDefinitionContainer(
+                    image=ecs.ContainerImage.from_docker_image_asset(dockerimage),
+                    execution_role=batch_role,  #TODO: distinguish roles?
+                    job_role=batch_role,
+                    mount_points=[ecs.MountPoint(container_path='/files', read_only=False, source_volume='efs_volume')],
+                    volumes=[ecs.Volume(
+                        name='efs_volume',
+                        efs_volume_configuration=ecs.EfsVolumeConfiguration(file_system_id=file_system.file_system_id),
+                    )],
+                    gpu_count=job_def_config['gpu_count'],
+                    memory_limit_mib=job_def_config['memory'],
+                    vcpus=job_def_config['vcpus'],
+                    environment={'NVIDIA_REQUIRE_CUDA': 'cuda>=11.0', 'NVIDIA_DRIVER_CAPABILITIES': 'all'},
+                ),
+                timeout=Duration.seconds(18000),
+            )
+
+        batch_train_job_def = get_job_def('train', config_train_job)
+        batch_fit_job_def = get_job_def('fit', config_fit_job)
+        return batch_compute_env, batch_queue, (batch_train_job_def, batch_fit_job_def)
 
     def get_bucket(self, config: dict):
         config_s3 = config['s3']

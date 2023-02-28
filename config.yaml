@@ -19,10 +19,19 @@ batch:
     instance_types:
     - 'g4dn.xlarge'
     queue_name: 'decode_job_queue'
-    job_def_name: 'decode_job_definition'
-    job_def_memory: 8000
-    job_def_gpu_count: 1
-    job_def_vcpus: 4
+    job_defs:
+        train:
+            name: 'decode_train_job_def'
+            memory: 8000
+            gpu_count: 1
+            vcpus: 4
+            timeout: 18000
+        fit:
+            name: 'decode_fit_job_def'
+            memory: 8000
+            gpu_count: 1
+            vcpus: 4
+            timeout: 3000
 
 vpc:
     vpc_name: 'decode_vpc'

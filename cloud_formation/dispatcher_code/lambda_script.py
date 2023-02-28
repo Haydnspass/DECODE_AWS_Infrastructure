@@ -27,8 +27,9 @@ def _start_job(job: dict, config: dict):
     else:
         raise ValueError(f'Job must be of type either "train" or "fit", not {job.job_type}.')
     client.submit_job(
-        jobDefinition=config_batch['job_def_name'],  #TODO: select based on decode version
-        jobName=f'decode_job_{job.id}',
+        # job definition: name from config, revision from job dict
+        jobDefinition=f"{config_batch['job_defs'][job_type]['name']}:{job['job_def_revision']}",
+        jobName=f"decode_job_{job['id']}",
         jobQueue=config_batch['queue_name'],
         containerOverrides={'command': cmd},
     )
