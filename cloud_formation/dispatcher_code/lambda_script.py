@@ -1,31 +1,36 @@
 import boto3
 import json
 import os
-from fastapi.encoders import jsonable_encoder
 from utils.queue import SQSJobQueue
 
 
 def _start_job(job: dict, config: dict):
-    """Send job to AWS batch.
-    Prepares and mounts EFS directory for logging and storing intermediate results.
+    """Starts training/fitting job on AWS batch.
+
+    :param job: job information as a dictionary. Required keys:
+        - id: job id
+        - job_type: 'train' or 'fit'
+        - job_def_revision: number of the revision of the batch job definition to use (dependent on the DECODE version)
+        - attributes: dict of command line arguments (key-value)
+    :param config: AWS configuration dict.
+    :returns: log_path: S3 path to the directory where the training logs are output (None if job['job_type'] is 'fit')
     """
     client = boto3.client('batch', region_name=config['region_name'])
     config_batch = config['batch']
+    config_s3 = config['s3']
     log_path = None
-    if job.job_type == 'train':
-        param_path = job.attributes['config_file']
-        model_path = job.attributes['model_file']
-        calib_path = job.attributes['calib_file']  #TODO: add in API
-        log_path = f's3://{config["s3"]["bucket_name"]}{config["s3"]["logs_root_path"]}/{job.id}/'  #TODO: add in API
-        cmd = ['--train', '-c', calib_path, '-m', model_path, '-p', param_path, '-l', log_path]
-    elif job.job_type == 'inference':
-        emitter_path = job.attributes['emitter_file']  #TODO: add in API
-        frame_path = job.attributes['frame_file']  #TODO: add in API
-        frame_meta_path = job.attributes['frame_meta_file']  #TODO: add in API
-        model_path = job.attributes['model_file']
-        cmd = ['--fit', '-e', emitter_path, '-f', frame_path, '-k', frame_meta_path, '-m', model_path]
+
+    # job type-specific arguments
+    job_type = job['job_type']
+    if job_type == 'train':
+        log_path = f"s3://{config_s3['bucket_name']}/{config_s3['logs_root_path']}/{job['id']}/"  #TODO: add in API
+        cmd = ['--train', '-l', log_path]
+    elif job_type == 'inference':
+        cmd = ['--fit']
     else:
-        raise ValueError(f'Job must be of type either "train" or "fit", not {job.job_type}.')
+        raise ValueError(f"Job must be of type either 'train' or 'fit', not {job_type}.")
+
+    cmd = cmd + [f"-m {job['model_path']}"] + [f"--{k}={v}" for k, v in job['attributes'].items()]
     client.submit_job(
         # job definition: name from config, revision from job dict
         jobDefinition=f"{config_batch['job_defs'][job_type]['name']}:{job['job_def_revision']}",
@@ -44,10 +49,8 @@ def _update_api_db(job: dict, config: dict, log_path: str):
 
 
 def lambda_handler(event, context):
-    """Handler function.
-    Sets up and sends the job to batch.
+    """Handler function: pulls messages from queues, sets up, and sends the job to batch.
     """
-    # config
     config = json.loads(os.environ['config_json'])
     queues = [SQSJobQueue(name) for name in config['sqs']['queue_names'].values()]
     older_than = config['sqs']['aws_if_older_than']
@@ -61,6 +64,6 @@ def lambda_handler(event, context):
             log_path = _start_job(job=job, config=config)
             api_url = None  #TODO: set api
             #_update_api_db(job=job, api_url=api_url, log_path=log_path)
-            jobs_started.append(jsonable_encoder(job))
+            jobs_started.append(job)
 
     return {'statusCode': 200, 'body': json.dumps({'jobs_started': jobs_started})}
